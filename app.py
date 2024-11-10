@@ -307,7 +307,7 @@ custom_css = """
 with gr.Blocks(css=custom_css, theme="default") as chatApp:
     gr.HTML(custom_css)  
     gr.Markdown("""
-    <h1 style="text-align: center; color: #333333;"> FastSight AI</h1>
+    <h1 style="text-align: center; color: #333333;"> FileSight AI</h1>
     <p style="text-align: center; color: #555555;">Enhance your document interactions with advanced AI-powered Q&A.</p>
     """)
     
