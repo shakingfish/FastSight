@@ -1,5 +1,5 @@
 """
-FastSight AI - Enhanced Query Chat Assistant
+FileSight AI - Enhanced Query Chat Assistant
 Description:
     This is an RAG application. User query in the code is 
 Features:
