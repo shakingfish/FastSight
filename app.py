@@ -7,22 +7,26 @@ Features:
     - Document Handling: Dynamically loads and unloads documents to provide responses based on them.
     - Interactive Chat: Offers a seamless chat interface.
     - Gradio Interface
+    - **New Feature**: Audio input using speech-to-text model
 Version:
-    0.2
+    0.3
 Date:
     11-10-2024
 """
-
 import os
 import gradio as gr
 import json
-from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, StorageContext, Document,Settings, PromptTemplate, get_response_synthesizer
+import whisper  # Added for speech-to-text
+from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, StorageContext, Document, Settings, PromptTemplate, get_response_synthesizer
 from llama_index.embeddings.nvidia import NVIDIAEmbedding
 from llama_index.llms.nvidia import NVIDIA
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.vector_stores import SimpleVectorStore
+
+# Load the Whisper model globally
+whisper_model = whisper.load_model("base")  # Options: "tiny", "base", "small", "medium", "large"
 
 # Global variables for the index and query engine
 index = None
@@ -179,24 +183,29 @@ Improved Query:"""
 def chat_stream(user_message, chat_history):
     global index, query_engine
     if index is None or query_engine is None:
-        return chat_history + [["Error", "No documents loaded. Please load documents first."]]
+        return chat_history + [{"role": "error", "content": "No documents loaded. Please load documents first."}]
     if not user_message:
-        return chat_history + [["Error", "No message provided."]]
+        return chat_history + [{"role": "error", "content": "No message provided."}]
 
     # Ensure chat_history is initialized
     if chat_history is None:
         chat_history = []
 
     # Append user message to chat history
-    chat_history.append([user_message, None])
+    chat_history.append({"role": "user", "content": user_message})
     save_chat_history(chat_history)
 
     try:
         # Process chat history to find relevant messages
         past_messages = chat_history[:-1]  # Exclude the current exchange
 
-        # Convert past messages to documents (exclude entries without assistant response)
-        past_documents = [Document(text=f"User: {msg[0]}\nAssistant: {msg[1]}") for msg in past_messages if msg[1]]
+        # Convert past messages to documents (pair user and assistant messages)
+        past_documents = []
+        for i in range(len(past_messages)):
+            if past_messages[i]['role'] == 'user':
+                user_text = past_messages[i]['content']
+                assistant_text = past_messages[i+1]['content'] if (i + 1) < len(past_messages) and past_messages[i+1]['role'] == 'assistant' else ""
+                past_documents.append(Document(text=f"User: {user_text}\nAssistant: {assistant_text}"))
 
         # Create chat index and query engine
         chat_vector_store = SimpleVectorStore()
@@ -224,7 +233,7 @@ def chat_stream(user_message, chat_history):
         K = 5
         recent_messages = chat_history[-K:]
         recent_chat_history_str = "\n".join(
-            [f"User: {msg[0]}\nAssistant: {msg[1]}" for msg in recent_messages if msg[1]]
+            [f"User: {msg['content']}" if msg['role'] == 'user' else f"Assistant: {msg['content']}" for msg in recent_messages]
         )
 
         # Improve the user's query
@@ -260,15 +269,27 @@ Answer: """
         # Generate response
         print(fmt_output_prompt)
         output_response = query_engine.query(fmt_output_prompt)
-        chat_history[-1][1] = str(output_response)  # Update response
+        chat_history.append({"role": "assistant", "content": str(output_response)})  # Append assistant response
         save_chat_history(chat_history)
 
         return chat_history
 
     except Exception as e:
         error_message = f"Error: {str(e)}"
-        chat_history[-1][1] = error_message  # Update response with error
+        chat_history.append({"role": "error", "content": error_message})  # Append error message
+        save_chat_history(chat_history)
         return chat_history
+
+# Function to process audio input
+def process_audio(audio_path):
+    if audio_path is None:
+        return None
+    try:
+        # Transcribe the audio file directly using the file path
+        result = whisper_model.transcribe(audio_path)
+        return result["text"]
+    except Exception as e:
+        return f"Error processing audio: {str(e)}"
 
 # Custom CSS for styling
 custom_css = """
@@ -402,22 +423,48 @@ with gr.Blocks(css=custom_css, theme="default") as chatApp:
     with gr.Tab("💬 Chat"):
         gr.Markdown("## 💡 Chat Interface")
         with gr.Row():
-            chatbot = gr.Chatbot(label="Conversation", height=500)
+            chatbot = gr.Chatbot(label="Conversation", height=500, type="messages")  # Updated 'type' parameter
         with gr.Row():
-            with gr.Column(scale=8):
+            with gr.Column(scale=6):
                 msg = gr.Textbox(
                     label="Enter your question",
                     placeholder="Type your message here...",
                     lines=1,
                     interactive=True
                 )
+            with gr.Column(scale=4):
+                audio_input = gr.Audio(
+                    type="filepath",
+                    label="Or Speak Your Question",
+                    interactive=True,
+                    sources= ['upload','microphone']
+                )
             with gr.Column(scale=2):
                 send_btn = gr.Button("📨 Send", variant="primary")
                 clear_btn = gr.Button("🧹 Clear Chat", variant="secondary")
         
+        # Function to handle sending messages
+        def on_send(text, audio, chat_history):
+            # Determine the input type
+            if audio is not None:
+                user_message = process_audio(audio)
+                if user_message.startswith("Error"):
+                    return chat_history + [{"role": "error", "content": user_message}], "", None
+            elif text:
+                user_message = text
+            else:
+                return chat_history + [{"role": "error", "content": "No input provided."}], "", None
+
+            # Append user message to chat history
+            chat_history = chat_stream(user_message, chat_history)
+            return chat_history, "", None
+
         # Set up event handlers
-        send_btn.click(chat_stream, inputs=[msg, chatbot], outputs=[chatbot])
-        send_btn.click(lambda: "", outputs=[msg])  # Clear input box after submission
+        send_btn.click(
+            on_send,
+            inputs=[msg, audio_input, chatbot],
+            outputs=[chatbot, msg, audio_input]
+        )
         clear_btn.click(lambda: [], None, chatbot, queue=False)
 
     gr.Markdown("""

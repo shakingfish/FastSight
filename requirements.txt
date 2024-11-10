@@ -5,3 +5,6 @@ gradio
 pymilvus
 numpy
 pandas
+openai-whisper
+torch
+pydub
