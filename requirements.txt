@@ -1,0 +1,7 @@
+llama-index
+llama-index-llms-nvidia
+llama-index-embeddings-nvidia
+gradio
+pymilvus
+numpy
+pandas
