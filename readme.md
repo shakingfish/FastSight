@@ -1,4 +1,4 @@
-FastSight
+FileSight
 Version: 0.2
 
 How to Use:
