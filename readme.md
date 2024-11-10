@@ -1,5 +1,5 @@
 FileSight
-Version: 0.2
+Version: 0.3
 
 How to Use:
 a.
